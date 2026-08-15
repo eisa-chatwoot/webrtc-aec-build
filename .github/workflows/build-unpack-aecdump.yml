@@ -1,0 +1,66 @@
+name: Build unpack_aecdump
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /usr/share/dotnet || true
+
+      - name: Install depot_tools
+        run: |
+          git clone --depth 1 \
+            https://chromium.googlesource.com/chromium/tools/depot_tools.git \
+            "$HOME/depot_tools"
+
+          echo "$HOME/depot_tools" >> "$GITHUB_PATH"
+
+      - name: Sync WebRTC M124
+        env:
+          DEPOT_TOOLS_UPDATE: "0"
+        run: |
+          mkdir "$GITHUB_WORKSPACE/webrtc"
+          cd "$GITHUB_WORKSPACE/webrtc"
+
+          gclient config \
+            --name src \
+            https://github.com/jitsi/webrtc.git
+
+          gclient sync \
+            --revision src@e7fccf32f8833bbe66b9ffdb73e5990af0809840 \
+            --no-history
+
+      - name: Install Linux build dependencies
+        run: |
+          cd "$GITHUB_WORKSPACE/webrtc/src"
+          sudo ./build/install-build-deps.sh --no-prompt
+
+      - name: Build unpack_aecdump
+        env:
+          DEPOT_TOOLS_UPDATE: "0"
+        run: |
+          cd "$GITHUB_WORKSPACE/webrtc/src"
+
+          gn gen out/unpack --args='
+            is_debug=false
+            rtc_enable_protobuf=true
+            symbol_level=0
+          '
+
+          autoninja -C out/unpack unpack_aecdump
+
+          file out/unpack/unpack_aecdump
+          ls -lh out/unpack/unpack_aecdump
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: unpack-aecdump-linux
+          path: webrtc/src/out/unpack/unpack_aecdump
