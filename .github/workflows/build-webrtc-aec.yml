@@ -1,0 +1,87 @@
+name: Build WebRTC M124 AEC
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-android-arm64:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout helper repository
+        uses: actions/checkout@v4
+
+      - name: Free runner disk space
+        shell: bash
+        run: |
+          echo "=== BEFORE CLEANUP ==="
+          df -h /
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/lib/android
+          docker system prune -af || true
+          sudo apt-get clean
+          echo "=== AFTER CLEANUP ==="
+          df -h /
+
+      - name: Install depot_tools
+        shell: bash
+        run: |
+          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$HOME/depot_tools"
+          echo "$HOME/depot_tools" >> "$GITHUB_PATH"
+
+      - name: Fetch exact Jitsi WebRTC M124
+        shell: bash
+        env:
+          WEBRTC_SHA: e7fccf32f8833bbe66b9ffdb73e5990af0809840
+        run: |
+          export PATH="$HOME/depot_tools:$PATH"
+          mkdir -p "$GITHUB_WORKSPACE/webrtc-checkout"
+          cd "$GITHUB_WORKSPACE/webrtc-checkout"
+
+          gclient config --name src https://github.com/jitsi/webrtc.git
+          printf '\ntarget_os = ["android"]\n' >> .gclient
+
+          gclient sync --no-history --revision "src@$WEBRTC_SHA"
+
+          cd src
+          echo "=== WEBRTC COMMIT ==="
+          git rev-parse HEAD
+          test "$(git rev-parse HEAD)" = "$WEBRTC_SHA"
+
+      - name: Install Linux build dependencies
+        shell: bash
+        run: |
+          cd "$GITHUB_WORKSPACE/webrtc-checkout/src"
+          sudo ./build/install-build-deps.sh --no-prompt
+
+      - name: Build ARM64 AAR with AEC dump
+        shell: bash
+        run: |
+          export PATH="$HOME/depot_tools:$PATH"
+          cd "$GITHUB_WORKSPACE/webrtc-checkout/src"
+
+          python3 tools_webrtc/android/build_aar.py \
+            --arch arm64-v8a \
+            --output "$GITHUB_WORKSPACE/libwebrtc-aec-arm64.aar" \
+            --extra-gn-args \
+              rtc_enable_protobuf=true \
+              rtc_exclude_audio_processing_module=false \
+              symbol_level=0
+
+          echo "=== RESULT ==="
+          ls -lh "$GITHUB_WORKSPACE/libwebrtc-aec-arm64.aar"
+
+      - name: Upload AAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: libwebrtc-aec-arm64
+          path: libwebrtc-aec-arm64.aar
+          if-no-files-found: error
+          retention-days: 7
