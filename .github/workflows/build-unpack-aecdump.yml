@@ -14,7 +14,7 @@ jobs:
           sudo rm -rf /opt/ghc || true
           sudo rm -rf /usr/share/dotnet || true
 
-      - name: Install depot_tools
+      - name: Install and bootstrap depot_tools
         run: |
           git clone --depth 1 \
             https://chromium.googlesource.com/chromium/tools/depot_tools.git \
@@ -22,11 +22,19 @@ jobs:
 
           echo "$HOME/depot_tools" >> "$GITHUB_PATH"
 
+          bash "$HOME/depot_tools/ensure_bootstrap"
+
+          test -f "$HOME/depot_tools/python3_bin_reldir.txt"
+
+          echo "DEPOT_TOOLS_BOOTSTRAP=OK"
+
       - name: Sync WebRTC M124
         env:
           DEPOT_TOOLS_UPDATE: "0"
         run: |
-          mkdir "$GITHUB_WORKSPACE/webrtc"
+          export PATH="$HOME/depot_tools:$PATH"
+
+          mkdir -p "$GITHUB_WORKSPACE/webrtc"
           cd "$GITHUB_WORKSPACE/webrtc"
 
           gclient config \
@@ -46,6 +54,8 @@ jobs:
         env:
           DEPOT_TOOLS_UPDATE: "0"
         run: |
+          export PATH="$HOME/depot_tools:$PATH"
+
           cd "$GITHUB_WORKSPACE/webrtc/src"
 
           gn gen out/unpack --args='
